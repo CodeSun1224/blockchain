@@ -1,16 +1,14 @@
 package cli
 
 import (
-	"blockchain/core"
 	"flag"
 	"os"
 	"fmt"
 	"log"
-	"strconv"
 )
 
 type CLI struct {
-	BC *core.Blockchain
+	// BC *core.Blockchain
 }
 
 func (cli *CLI) printUsage() {
@@ -37,16 +35,39 @@ func (cli *CLI) validateArgs() {
 func (cli *CLI) Run() {
 	// 检测输入参数是否合规
 	cli.validateArgs()
-	// 1、设置匹配模板 "addblock -data" 和 "printchain"
-	addBlockCmd := flag.NewFlagSet("addblock", flag.ExitOnError)
-	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 
-	addBlockData := addBlockCmd.String("data", "", "Block data")
+	// os.Setenv("NODE_ID", "")
+	nodeID := os.Getenv("NODE_ID")
+	// if nodeID == "" {
+	// 	fmt.Printf("NODE_ID env. var is not set!")
+	// 	os.Exit(1)
+	// }
+
+	// 1、设置匹配模板 
+	getBalanceCmd := flag.NewFlagSet("getbalance", flag.ExitOnError)
+	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
+	createBlockchainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
+	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+
+	getBalanceAddress := getBalanceCmd.String("address", "", "The address to get balance for")
+	sendFrom := sendCmd.String("from", "", "Source wallet address")
+	sendTo := sendCmd.String("to", "", "Destination wallet address")
+	sendAmount := sendCmd.Int("amount", 0, "Amount to send")
+	createBlockchainAddress := createBlockchainCmd.String("address", "", "The address to send genesis block reward to")
 	// 2、根据第二个输入参数Args[1]进行匹配，匹配成功则继续匹配后续输入内容
 	switch os.Args[1] {
-	case "addblock":
-		err := addBlockCmd.Parse(os.Args[2:])
-		// 匹配出错则打印异常
+	case "getbalance":
+		err := getBalanceCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "send":
+		err := sendCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "createblockchain":
+		err := createBlockchainCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
 		}
@@ -60,40 +81,33 @@ func (cli *CLI) Run() {
 		os.Exit(1)
 	}
 
-	// 如果是添加区块的命令且 -data 不为空，则调用AddBlock函数，添加区块
-	if addBlockCmd.Parsed() {
-		if *addBlockData == "" {
-			addBlockCmd.Usage()
+	if getBalanceCmd.Parsed() {
+		if *getBalanceAddress == "" {
+			getBalanceCmd.Usage()
 			os.Exit(1)
 		}
-		cli.addBlock(*addBlockData)
+		cli.getBalance(*getBalanceAddress)
 	}
-	// 如果是打印区块命令，则调用迭代函数，逐个打印
+
 	if printChainCmd.Parsed() {
-		cli.printChain()
+		cli.printChain(nodeID)
 	}
-}
-
-func (cli *CLI) addBlock(data string) {
-	cli.BC.AddBlock(data)
-	fmt.Println("Success!")
-}
-
-func (cli *CLI) printChain() {
-	bci := cli.BC.Iterator()
-
-	for {
-		block := bci.Next()
-
-		fmt.Printf("Prev. hash: %x\n", block.PrevBlockHash)
-		fmt.Printf("Data: %s\n", block.Data)
-		fmt.Printf("Hash: %x\n", block.Hash)
-		pow := core.NewProofOfWork(block)
-		fmt.Printf("PoW: %s\n", strconv.FormatBool(pow.Validate()))
-		fmt.Println()
-
-		if len(block.PrevBlockHash) == 0 {
-			break
+	if createBlockchainCmd.Parsed() {
+		if *createBlockchainAddress == "" {
+			createBlockchainCmd.Usage()
+			os.Exit(1)
 		}
+		cli.createBlockchain(*createBlockchainAddress)
 	}
+	if sendCmd.Parsed() {
+		if *sendFrom == "" || *sendTo == "" || *sendAmount <= 0 {
+			sendCmd.Usage()
+			os.Exit(1)
+		}
+
+		cli.send(*sendFrom, *sendTo, *sendAmount)
+	}
+
 }
+
+
