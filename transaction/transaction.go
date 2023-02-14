@@ -30,10 +30,10 @@ func NewCoinbaseTX(to, data string) *Transaction {
 		data = fmt.Sprintf("Reward to '%s'", to)
 	}
 	// 由于没有输入，所以 Txid 为空，Vout 等于 -1
-	txin := TXInput{[]byte{}, -1, data}
+	txin := TXInput{[]byte{}, -1, nil, []byte(data)}
 	// 输出的 锁定脚本 暂时用地址to代替
-	txout := TXOutput{subsidy, to}
-	tx := Transaction{nil, []TXInput{txin}, []TXOutput{txout}}
+	txout := NewTXOutput(subsidy, to)
+	tx := Transaction{nil, []TXInput{txin}, []TXOutput{*txout}}
 	tx.ID = tx.Hash()
 
 	return &tx
@@ -61,12 +61,4 @@ func (tx Transaction) Serialize() []byte {
 	}
 
 	return encoded.Bytes()
-}
-
-func (in *TXInput) CanUnlockOutputWith(unlockingData string) bool {
-	return in.ScriptSig == unlockingData
-}
-
-func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
-	return out.ScriptPubKey == unlockingData
 }
