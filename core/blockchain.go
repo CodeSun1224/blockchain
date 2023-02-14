@@ -59,7 +59,7 @@ func dbExists() bool {
 }
 
 // 如果数据库找不到区块链，则需要调用CreateBlockchain创建一个，否则取出tip，构造一个新块
-func NewBlockchain(address string) *Blockchain {
+func NewBlockchain() *Blockchain {
 	if dbExists() == false {
 		fmt.Println("No existing blockchain found. Create one first.")
 		os.Exit(1)
@@ -95,14 +95,16 @@ func CreateBlockchain(address string) *Blockchain {
 	}
 
 	var tip []byte
+
+	cbtx := transaction.NewCoinbaseTX(address, genesisCoinbaseData)
+	genesis := NewGenesisBlock(cbtx)
+
 	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		cbtx := transaction.NewCoinbaseTX(address, genesisCoinbaseData)
-		genesis := NewGenesisBlock(cbtx)
 
 		b, err := tx.CreateBucket([]byte(blocksBucket))
 		if err != nil {
@@ -186,7 +188,7 @@ func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []transaction.T
 }
 
 // 普通交易：from给to发amount个币
-func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *transaction.Transaction {
+func NewUTXOTransaction(from, to string, amount int, utxoset *UTXOSet) *transaction.Transaction {
 	var inputs []transaction.TXInput
 	var outputs []transaction.TXOutput
 
@@ -198,7 +200,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *transactio
 	pubKeyHash := wallet.HashPubKey(wallet_from.PublicKey)
 
 	// 找到所有未花费的输出，并计算它们的value和是否足够
-	acc, validOutputs := bc.FindSpendableOutputs(pubKeyHash, amount)
+	acc, validOutputs := utxoset.FindSpendableOutputs(pubKeyHash, amount)
 	if acc < amount {
 		log.Panic("ERROR: Not enough funds")
 	}
@@ -226,7 +228,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *transactio
 
 	tx := transaction.Transaction{nil, inputs, outputs}
 	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, wallet_from.PrivateKey)
+	utxoset.Blockchain.SignTransaction(&tx, wallet_from.PrivateKey)
 
 	return &tx
 }
@@ -304,20 +306,47 @@ func (bc *Blockchain) MineBlock(transactions []*transaction.Transaction) *Block 
 }
 
 // 查余额：找到所有未花费的输出，计算所有输出的value和
-func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []transaction.TXOutput {
-	var UTXOs []transaction.TXOutput
-	unspentTransactions := bc.FindUnspentTransactions(pubKeyHash)
+func (bc *Blockchain) FindUTXO() map[string]transaction.TXOutputs {
+	UTXO := make(map[string]transaction.TXOutputs)
+	spentTXOs := make(map[string][]int)
+	bci := bc.Iterator()
 
-	for _, tx := range unspentTransactions {
-		for _, out := range tx.Vout {
-			// 只考虑能被解锁的交易
-			if out.IsLockedWithKey(pubKeyHash) {
-				UTXOs = append(UTXOs, out)
+	for {
+		block := bci.Next()
+
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+
+		Outputs:
+			for outIdx, out := range tx.Vout {
+				// Was the output spent?
+				if spentTXOs[txID] != nil {
+					for _, spentOutIdx := range spentTXOs[txID] {
+						if spentOutIdx == outIdx {
+							continue Outputs
+						}
+					}
+				}
+
+				outs := UTXO[txID]
+				outs.Outputs = append(outs.Outputs, out)
+				UTXO[txID] = outs
 			}
+
+			if tx.IsCoinbase() == false {
+				for _, in := range tx.Vin {
+					inTxID := hex.EncodeToString(in.Txid)
+					spentTXOs[inTxID] = append(spentTXOs[inTxID], in.Vout)
+				}
+			}
+		}
+
+		if len(block.PrevBlockHash) == 0 {
+			break
 		}
 	}
 
-	return UTXOs
+	return UTXO
 }
 
 // 根据ID获取交易
@@ -358,6 +387,9 @@ func (bc *Blockchain) SignTransaction(tx *transaction.Transaction, privKey ecdsa
 
 // 验证交易
 func (bc *Blockchain) VerifyTransaction(tx *transaction.Transaction) bool {
+	if tx.IsCoinbase() {
+		return true
+	}
 	prevTXs := make(map[string]transaction.Transaction)
 
 	for _, vin := range tx.Vin {
