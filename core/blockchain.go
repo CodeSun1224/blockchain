@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"os"
 	"blockchain/wallet"
+	"bytes"
+	"crypto/ecdsa"
+	"errors"
 )
 
 const dbFile = "blockchain_%s.db"
@@ -222,8 +225,9 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *transactio
 	}
 
 	tx := transaction.Transaction{nil, inputs, outputs}
-	tx.Hash()
-	//返回新的交易
+	tx.ID = tx.Hash()
+	bc.SignTransaction(&tx, wallet_from.PrivateKey)
+
 	return &tx
 }
 // 找到所有未花费的输出，并计算它们的value和是否足够
@@ -255,6 +259,12 @@ func (bc *Blockchain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, 
 // 所有交易打包为一个区块，写入数据库中
 func (bc *Blockchain) MineBlock(transactions []*transaction.Transaction) *Block {
 	var lastHash []byte
+
+	for _, tx := range transactions {
+		if bc.VerifyTransaction(tx) != true {
+			log.Panic("ERROR: Invalid transaction")
+		}
+	}
 
 	err := bc.DB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
@@ -308,4 +318,55 @@ func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []transaction.TXOutput {
 	}
 
 	return UTXOs
+}
+
+// 根据ID获取交易
+func (bc *Blockchain) FindTransaction(ID []byte) (transaction.Transaction, error) {
+	bci := bc.Iterator()
+
+	for {
+		block := bci.Next()
+
+		for _, tx := range block.Transactions {
+			if bytes.Compare(tx.ID, ID) == 0 {
+				return *tx, nil
+			}
+		}
+
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+	}
+
+	return transaction.Transaction{}, errors.New("Transaction is not found")
+}
+
+// 对交易输入引用的之前的交易进行签名
+func (bc *Blockchain) SignTransaction(tx *transaction.Transaction, privKey ecdsa.PrivateKey) {
+	prevTXs := make(map[string]transaction.Transaction)
+
+	for _, vin := range tx.Vin {
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		if err != nil {
+			log.Panic(err)
+		}
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	tx.Sign(privKey, prevTXs)
+}
+
+// 验证交易
+func (bc *Blockchain) VerifyTransaction(tx *transaction.Transaction) bool {
+	prevTXs := make(map[string]transaction.Transaction)
+
+	for _, vin := range tx.Vin {
+		prevTX, err := bc.FindTransaction(vin.Txid)
+		if err != nil {
+			log.Panic(err)
+		}
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	return tx.Verify(prevTXs)
 }
