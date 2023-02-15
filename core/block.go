@@ -6,7 +6,6 @@ import (
 	"encoding/gob"
 	"log"
 	"blockchain/transaction"
-	"crypto/sha256"
 )
 
 type Block struct {
@@ -54,15 +53,14 @@ func DeserializeBlock(d []byte) *Block {
 
 // 遍历所有交易，对每一笔交易ID，计算哈希
 func (b *Block) HashTransactions() []byte {
-	var txHashes [][]byte
-	var txHash [32]byte
+	var transactions [][]byte
 
-	for _, tx := range b.Transactions {
-		txHashes = append(txHashes, tx.ID)
-	}
-	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+    for _, tx := range b.Transactions {
+        transactions = append(transactions, tx.Serialize())
+    }
+    mTree := NewMerkleTree(transactions)
 
-	return txHash[:]
+    return mTree.RootNode.Data
 }
 
 func NewGenesisBlock(coinbase *transaction.Transaction) *Block {
