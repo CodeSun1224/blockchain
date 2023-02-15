@@ -36,12 +36,12 @@ func (cli *CLI) Run() {
 	// 检测输入参数是否合规
 	cli.validateArgs()
 
-	// os.Setenv("NODE_ID", "")
+	os.Setenv("NODE_ID", "")
 	nodeID := os.Getenv("NODE_ID")
-	// if nodeID == "" {
-	// 	fmt.Printf("NODE_ID env. var is not set!")
-	// 	os.Exit(1)
-	// }
+	if nodeID == "" {
+		fmt.Printf("NODE_ID env. var is not set!")
+		os.Exit(1)
+	}
 
 	// 1、设置匹配模板 
 	createWalletCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
@@ -50,12 +50,17 @@ func (cli *CLI) Run() {
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
 	createBlockchainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+	startNodeCmd := flag.NewFlagSet("startnode", flag.ExitOnError)
 
+	startNodeMiner := startNodeCmd.String("miner", "", "Enable mining mode and send reward to ADDRESS")
 	getBalanceAddress := getBalanceCmd.String("address", "", "The address to get balance for")
 	sendFrom := sendCmd.String("from", "", "Source wallet address")
 	sendTo := sendCmd.String("to", "", "Destination wallet address")
 	sendAmount := sendCmd.Int("amount", 0, "Amount to send")
 	createBlockchainAddress := createBlockchainCmd.String("address", "", "The address to send genesis block reward to")
+	
+	sendMine := sendCmd.Bool("mine", false, "Mine immediately on the same node")
+	
 	// 2、根据第二个输入参数Args[1]进行匹配，匹配成功则继续匹配后续输入内容
 	switch os.Args[1] {
 	case "getbalance":
@@ -98,7 +103,7 @@ func (cli *CLI) Run() {
 			getBalanceCmd.Usage()
 			os.Exit(1)
 		}
-		cli.getBalance(*getBalanceAddress)
+		cli.getBalance(*getBalanceAddress, nodeID)
 	}
 
 	if printChainCmd.Parsed() {
@@ -109,7 +114,7 @@ func (cli *CLI) Run() {
 			createBlockchainCmd.Usage()
 			os.Exit(1)
 		}
-		cli.createBlockchain(*createBlockchainAddress)
+		cli.createBlockchain(*createBlockchainAddress, nodeID)
 	}
 	if sendCmd.Parsed() {
 		if *sendFrom == "" || *sendTo == "" || *sendAmount <= 0 {
@@ -117,16 +122,24 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 
-		cli.send(*sendFrom, *sendTo, *sendAmount)
+		cli.send(*sendFrom, *sendTo, *sendAmount, nodeID, *sendMine)
 	}
 	if createWalletCmd.Parsed() {
-		cli.createWallet()
+		cli.createWallet(nodeID)
 	}
 
 	if listAddressesCmd.Parsed() {
-		cli.listAddresses()
+		cli.listAddresses(nodeID)
 	}
 
+	if startNodeCmd.Parsed() {
+		nodeID := os.Getenv("NODE_ID")
+		if nodeID == "" {
+			startNodeCmd.Usage()
+			os.Exit(1)
+		}
+		cli.startNode(nodeID, *startNodeMiner)
+	}
 }
 
 

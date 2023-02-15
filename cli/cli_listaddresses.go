@@ -6,8 +6,8 @@ import (
 	"blockchain/wallet"
 )
 
-func (cli *CLI) listAddresses() {
-	wallets, err := wallet.NewWallets()
+func (cli *CLI) listAddresses(nodeID string) {
+	wallets, err := wallet.NewWallets(nodeID)
 	if err != nil {
 		log.Panic(err)
 	}
